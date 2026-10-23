@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./docs/banner.png" alt="dsh-ui-beautify：DSH 界面美化" width="100%">
+</p>
+
 # dsh-ui-beautify
 
 给 DeepSeek Harness（DSH）Web 界面加一层可配置的外观层：**风格预设、表面透明度、背景图、界面/代码字体**。
@@ -139,6 +143,7 @@ dsh-ui-beautify/
 ├── client.js             # 全部实现：token 图层、背景图、字体、设置页
 ├── locale/{zh,en}.json   # 插件管理器显示的标题与描述
 ├── icon.svg              # 插件图标
+├── docs/banner.png       # README 顶部 banner
 ├── test/client.test.mjs  # node:test + node:vm 行为测试
 ├── AUDIT.md              # 代码审计与隐私检查报告
 ├── README.md

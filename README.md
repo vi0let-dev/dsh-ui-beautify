@@ -5,6 +5,8 @@
 它只通过 DSH 官方 Client `theme` 服务的 `overrideTokens` 覆盖设计令牌，并用插件自己的 `<style>` 绘制背景图；不替换 app root、不追加第二个应用、不联网、不读会话内容。
 
 > 状态：源码已完成，25 项单元测试、结构自检与安全扫描通过；**尚未在你的 DSH 中安装、启用或做视觉验证**。安装与验收由你自行完成。
+>
+> 仓库：<https://github.com/vi0let-dev/dsh-ui-beautify>
 
 ---
 
@@ -47,23 +49,25 @@
 
 > 以下命令需要你自己执行：本仓库不包含安装脚本，也不会自动修改你的 profile。
 
-仓库地址：`https://github.com/<your-github-user>/dsh-ui-beautify`（发布前替换成你的实际地址）。
+GitHub 仓库（公开）：<https://github.com/vi0let-dev/dsh-ui-beautify>
 
-**方式一：插件页安装**
+**方式一：插件页安装（推荐）**
 
 1. 侧边栏 → **插件** → **添加插件**
-2. 输入 `github:<your-github-user>/dsh-ui-beautify`
+2. 输入 `github:vi0let-dev/dsh-ui-beautify`
 3. 按提示启用，完全退出 DSH 并重启，然后硬刷新页面（Windows/Linux `Ctrl+F5`，macOS `Cmd+Shift+R`）
 4. 侧边栏 → **设置**，左侧出现 **界面美化**，即安装成功
 
-**方式二：命令行安装**
+**方式二：GitHub 命令行安装**
 
 ```powershell
 # 先确认自己的 profile 名，不要照抄
 $env:DSH_PROFILE
 
-dsh plugin --profile <profile> add github:<your-github-user>/dsh-ui-beautify
+dsh plugin --profile <profile> add github:vi0let-dev/dsh-ui-beautify
 ```
+
+当前分支为 `main`。插件页/命令行安装的是仓库默认分支 `main` 的最新提交；仓库更新后需要重新执行一次 `dsh plugin ... add` 才会拉取新版本。
 
 本地开发调试：
 

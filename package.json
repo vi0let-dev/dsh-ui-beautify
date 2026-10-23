@@ -5,6 +5,14 @@
   "type": "module",
   "description": "Adjust the DSH Web UI appearance: style presets, surface transparency, wallpaper, and fonts.",
   "main": "./index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vi0let-dev/dsh-ui-beautify.git"
+  },
+  "homepage": "https://github.com/vi0let-dev/dsh-ui-beautify#readme",
+  "bugs": {
+    "url": "https://github.com/vi0let-dev/dsh-ui-beautify/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

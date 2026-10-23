@@ -1,0 +1,12 @@
+# dsh-ui-beautify —— bundle patch。
+#
+# 三处名字必须一致，改一处就要全改：
+#   1. package.json 的 "name"
+#   2. 下面这条 insert 的 "name"
+#   3. client.js 里 __ModuleLoader__.load 的 "id"
+#
+# UI-only 插件没有 Host 配置，config 保持空对象。
+- insert:
+    - id: dsh-ui-beautify
+      name: 'dsh-ui-beautify'
+      config: {}

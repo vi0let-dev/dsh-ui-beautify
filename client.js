@@ -46,6 +46,7 @@ window.__ModuleLoader__.load({
     const WALLPAPER_KEY = 'dsh-ui-beautify:wallpaper'
     const ROOT_ATTR = 'data-dsh-ui-beautify'
     const WALLPAPER_ATTR = 'data-dsh-ui-beautify-wallpaper'
+    const SETTINGS_OPAQUE_ATTR = 'data-dsh-ui-beautify-settings-opaque'
     const FILTER_VAR = '--dsh-ui-beautify-wallpaper-filter'
     const DIM_VAR = '--dsh-ui-beautify-wallpaper-dim'
     const STATIC_CSS_ID = 'dsh-ui-beautify/static.css'
@@ -851,6 +852,31 @@ window.__ModuleLoader__.load({
             dark: rgbaFromHex(palette.dark[key], alpha),
           }
         }
+        /*
+         * The settings panel keeps its own opaque palette. These values are
+         * plain hex colors (never rgba), so the surface-opacity slider cannot
+         * make the panel translucent. The panel scopes them in STATIC_CSS.
+         */
+        tokens['--dsh-ui-beautify-settings-base'] = {
+          light: palette.light.base,
+          dark: palette.dark.base,
+        }
+        tokens['--dsh-ui-beautify-settings-layer-1'] = {
+          light: palette.light.layer1,
+          dark: palette.dark.layer1,
+        }
+        tokens['--dsh-ui-beautify-settings-layer-2'] = {
+          light: palette.light.layer2,
+          dark: palette.dark.layer2,
+        }
+        tokens['--dsh-ui-beautify-settings-overlay'] = {
+          light: palette.light.overlay,
+          dark: palette.dark.overlay,
+        }
+        tokens['--dsh-ui-beautify-settings-module'] = {
+          light: palette.light.module,
+          dark: palette.dark.module,
+        }
       }
 
       if (hasStyle) {
@@ -1355,12 +1381,21 @@ ${selector} body[data-ds-dark-theme]::after {
 
       function applyTokens() {
         const theme = currentTheme()
-        if (!theme || typeof theme.overrideTokens !== 'function') return
+        if (!theme || typeof theme.overrideTokens !== 'function') {
+          root.removeAttribute(SETTINGS_OPAQUE_ATTR)
+          return
+        }
         const tokens = buildTokens(app.settings.get())
+        const opaque = Object.prototype.hasOwnProperty.call(tokens, '--dsh-ui-beautify-settings-base')
         const key = JSON.stringify(tokens)
-        if (key === lastTokenKey) return
+        if (key === lastTokenKey) {
+          if (opaque) root.setAttribute(SETTINGS_OPAQUE_ATTR, 'on')
+          else root.removeAttribute(SETTINGS_OPAQUE_ATTR)
+          return
+        }
         lastTokenKey = key
         if (Object.keys(tokens).length === 0) {
+          root.removeAttribute(SETTINGS_OPAQUE_ATTR)
           if (tokenDispose) {
             try {
               tokenDispose()
@@ -1373,7 +1408,10 @@ ${selector} body[data-ds-dark-theme]::after {
         }
         try {
           tokenDispose = theme.overrideTokens(TOKEN_SOURCE, tokens)
+          if (opaque) root.setAttribute(SETTINGS_OPAQUE_ATTR, 'on')
+          else root.removeAttribute(SETTINGS_OPAQUE_ATTR)
         } catch (error) {
+          root.removeAttribute(SETTINGS_OPAQUE_ATTR)
           ctx.logger?.warn?.('dsh-ui-beautify: theme token override rejected', error)
         }
       }
@@ -1441,6 +1479,7 @@ ${selector} body[data-ds-dark-theme]::after {
         }
         root.removeAttribute(ROOT_ATTR)
         root.removeAttribute(WALLPAPER_ATTR)
+        root.removeAttribute(SETTINGS_OPAQUE_ATTR)
         root.style.removeProperty(FILTER_VAR)
         root.style.removeProperty(DIM_VAR)
         if (wallpaperTag && typeof wallpaperTag.remove === 'function') wallpaperTag.remove()
@@ -2070,6 +2109,20 @@ body[data-ds-dark-theme] .dsh-ui-beautify-page {
   padding-top: 6px;
   border-top: 1px solid var(--dub-border);
   flex-wrap: wrap;
+}
+/*
+ * The settings panel is a shell-owned dialog portaled to body. It carries the
+ * stable data-shortcut-modal="settings" marker. Scope an opaque palette to
+ * that panel only, so the surface-opacity slider keeps affecting the rest of
+ * the UI while the preferences stay readable.
+ */
+html[data-dsh-ui-beautify-settings-opaque] [data-shortcut-modal='settings'] {
+  --dsw-alias-bg-base: var(--dsh-ui-beautify-settings-base);
+  --dsw-alias-bg-layer-1: var(--dsh-ui-beautify-settings-layer-1);
+  --dsw-alias-bg-layer-2: var(--dsh-ui-beautify-settings-layer-2);
+  --dsw-alias-bg-overlay: var(--dsh-ui-beautify-settings-overlay);
+  --dsw-alias-bg-module-platform: var(--dsh-ui-beautify-settings-module);
+  background-color: var(--dsh-ui-beautify-settings-layer-2) !important;
 }
 @media (max-width: 640px) {
   .dub-row { flex-direction: column; align-items: stretch; gap: 8px; }

@@ -388,6 +388,10 @@ test('default settings produce no token layer', () => {
 
   assert.equal(ctx.tokenLayers.length, 0)
   assert.equal(document.documentElement.getAttribute('data-dsh-ui-beautify'), 'on')
+  assert.equal(
+    document.documentElement.getAttribute('data-dsh-ui-beautify-settings-opaque'),
+    null,
+  )
   assert.equal(document.styleTags.length, 1)
   assert.equal(document.styleTags[0].dataset.plugin, 'dsh-ui-beautify')
 })
@@ -405,6 +409,9 @@ test('a style preset carries light and dark token pairs', () => {
   assert.equal(tokens['--dsw-alias-label-primary'].dark, '#eef3fa')
   assert.equal(tokens['--dsw-radius-panel'].light, '30px')
   assert.equal(tokens['--dsh-font-family-text'], undefined)
+  assert.equal(tokens['--dsh-ui-beautify-settings-base'].light, '#ffffff')
+  assert.equal(tokens['--dsh-ui-beautify-settings-base'].dark, '#0f1218')
+  assert.equal(tokens['--dsh-ui-beautify-settings-layer-2'].light, '#f2f6fb')
 })
 
 test('follow + opacity only overrides surfaces', () => {
@@ -418,6 +425,7 @@ test('follow + opacity only overrides surfaces', () => {
   assert.equal(tokens['--dsw-alias-bg-overlay'].light, 'rgba(255, 255, 255, 0.88)')
   assert.equal(tokens['--dsw-alias-border-l1'], undefined)
   assert.equal(tokens['--dsw-alias-label-primary'], undefined)
+  assert.equal(tokens['--dsh-ui-beautify-settings-base'].light, '#ffffff')
 })
 
 test('font presets and custom names become token pairs', () => {
@@ -618,6 +626,10 @@ test('applies a stored style and wallpaper', () => {
   assert.equal(document.documentElement.getAttribute('data-dsh-ui-beautify'), 'on')
   assert.equal(document.documentElement.getAttribute('data-dsh-ui-beautify-wallpaper'), 'on')
   assert.equal(
+    document.documentElement.getAttribute('data-dsh-ui-beautify-settings-opaque'),
+    'on',
+  )
+  assert.equal(
     document.documentElement.style.getPropertyValue('--dsh-ui-beautify-wallpaper-filter'),
     'blur(6px)',
   )
@@ -650,6 +662,10 @@ test('cleanup removes the token layer, attributes, variables, and tags', () => {
   assert.equal(ctx.tokenLayers[1].state, 'removed')
   assert.equal(document.documentElement.getAttribute('data-dsh-ui-beautify'), null)
   assert.equal(document.documentElement.getAttribute('data-dsh-ui-beautify-wallpaper'), null)
+  assert.equal(
+    document.documentElement.getAttribute('data-dsh-ui-beautify-settings-opaque'),
+    null,
+  )
   assert.equal(
     document.documentElement.style.getPropertyValue('--dsh-ui-beautify-wallpaper-filter'),
     '',
@@ -718,6 +734,35 @@ test('settings page CSS follows theme tokens', () => {
   assert.ok(css.includes('var(--dsw-alias-label-secondary'))
   assert.ok(css.includes('var(--dub-accent)'))
   assert.ok(css.includes('var(--dsw-alias-border-l2'))
+  assert.ok(css.includes('data-shortcut-modal'))
+  assert.ok(css.includes('--dsh-ui-beautify-settings-base'))
+})
+
+test('keeps the settings panel opaque while surfaces are translucent', () => {
+  const glass = instantiate({
+    storage: createStorage({
+      'dsh-ui-beautify:settings': JSON.stringify({ style: 'glass', surfaceOpacity: 30 }),
+    }),
+  })
+  glass.plugin.apply(glass.ctx)
+
+  const tokens = glass.ctx.tokenLayers[0].tokens
+  assert.equal(tokens['--dsw-alias-bg-base'].light, 'rgba(255, 255, 255, 0.3)')
+  assert.equal(tokens['--dsh-ui-beautify-settings-base'].light, '#ffffff')
+  assert.equal(tokens['--dsh-ui-beautify-settings-layer-2'].light, '#f2f6fb')
+  assert.equal(tokens['--dsh-ui-beautify-settings-layer-2'].dark, '#1b222c')
+  assert.equal(
+    glass.document.documentElement.getAttribute('data-dsh-ui-beautify-settings-opaque'),
+    'on',
+  )
+
+  const plain = instantiate()
+  plain.plugin.apply(plain.ctx)
+  assert.equal(plain.ctx.tokenLayers.length, 0)
+  assert.equal(
+    plain.document.documentElement.getAttribute('data-dsh-ui-beautify-settings-opaque'),
+    null,
+  )
 })
 
 test('the settings page component is exported for inspection', () => {

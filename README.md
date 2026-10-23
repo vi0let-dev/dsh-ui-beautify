@@ -8,11 +8,11 @@
 
 它只通过 DSH 官方 Client `theme` 服务的 `overrideTokens` 覆盖设计令牌，并用插件自己的 `<style>` 绘制背景图；不替换 app root、不追加第二个应用、不联网、不读会话内容。
 
-> 状态：源码已完成，27 项单元测试、结构自检与安全扫描通过；**尚未在你的 DSH 中安装、启用或做视觉验证**。安装与验收由你自行完成。
+> 状态：源码已完成，28 项单元测试、结构自检与安全扫描通过；**尚未在你的 DSH 中安装、启用或做视觉验证**。安装与验收由你自行完成。
 >
 > 仓库：<https://github.com/vi0let-dev/dsh-ui-beautify>
 >
-> 版本：`0.1.1` —— 背景图改为 IndexedDB Blob 存储，原始文件上限 16 MB → 40 MB，解除 localStorage 字符上限；IndexedDB 不可用时回退到 localStorage。
+> 版本：`0.1.2` —— 设置页固定 100% 不透明，表面透明度只影响设置页之外的界面；`0.1.1` 起背景图改为 IndexedDB Blob 存储（原文件上限 40 MB，解除 localStorage 字符上限）。
 
 ---
 
@@ -22,6 +22,7 @@
 |---|---|
 | 风格预设 | 跟随 DSH / 玻璃 / 暖纸 / 樱花 / 极简；每套都定义明亮与深色两组取值 |
 | 表面透明度 | 0–100%，作用于主背景、卡片、侧栏、气泡、代码块等表面 |
+| 设置页不透明 | 无论表面透明度调到多少，设置面板始终 100% 不透明，方便边调边看 |
 | 背景图 | 本地上传（浏览器内压缩后保存）或 http(s) 图片链接；支持 0–24px 模糊、0–70% 遮罩 |
 | 界面字体 | 跟随 DSH / 系统无衬线 / 衬线（宋体）/ 圆体 / 等宽 / 自定义字体列表 |
 | 代码字体 | 跟随 DSH / 等宽 / 系统无衬线 / 自定义字体列表 |
@@ -73,6 +74,12 @@ $env:DSH_PROFILE
 dsh plugin --profile <profile> add github:vi0let-dev/dsh-ui-beautify
 ```
 
+锁定到本次发布的 tag：
+
+```powershell
+dsh plugin --profile <profile> add "github:vi0let-dev/dsh-ui-beautify#v0.1.2"
+```
+
 当前分支为 `main`。插件页/命令行安装的是仓库默认分支 `main` 的最新提交；仓库更新后需要重新执行一次 `dsh plugin ... add` 才会拉取新版本。
 
 本地开发调试：
@@ -83,7 +90,7 @@ dsh plugin --profile <profile> add "<项目绝对路径>"
 
 > 本地目录是链接安装，**不要移动或删除原目录**，否则插件随之失效。
 
-**升级**：GitHub 直装会在 profile 里放一份副本。从 `0.1.0` 升到 `0.1.1`（背景图改为 IndexedDB 存储）时，重新执行一次 `dsh plugin --profile <profile> add github:vi0let-dev/dsh-ui-beautify`，完全退出 DSH 并重启，然后硬刷新页面；本地链接安装改完刷新页面即可。
+**升级**：GitHub 直装会在 profile 里放一份副本。升级到 `0.1.2`（设置页固定不透明）时，重新执行一次 `dsh plugin --profile <profile> add github:vi0let-dev/dsh-ui-beautify`（或锁定 `#v0.1.2`），完全退出 DSH 并重启，然后硬刷新页面；本地链接安装改完刷新页面即可。
 
 **卸载 / 恢复原始外观**：在插件页停用并卸载，重启 DSH 后刷新页面。插件卸载时会移除 token 图层、背景图样式、根节点属性和 CSS 变量；浏览器 localStorage 里的两个键需要手动清除（见下方「配置」）。
 
@@ -91,7 +98,7 @@ dsh plugin --profile <profile> add "<项目绝对路径>"
 
 ## 使用
 
-1. 打开 **设置 → 界面美化**。
+1. 打开 **设置 → 界面美化**。设置面板始终 100% 不透明，透明度滑块只改变面板之外的界面。
 2. 在「外观风格」里选一套预设，或保持“跟随 DSH”。
 3. 需要背景图时：选择本地图片，或粘贴 http(s) 图片链接后点「使用链接」。
 4. 调「表面透明度」让背景图透出；文字不清楚时调高「背景遮罩」或降低「背景模糊」。
@@ -188,12 +195,12 @@ dsh-ui-beautify/
 ```powershell
 node --check index.js
 node --check client.js
-node test/client.test.mjs      # 27 项测试，直接运行（无需 spawn 子进程）
+node test/client.test.mjs      # 28 项测试，直接运行（无需 spawn 子进程）
 ```
 
 也可以 `node --test test`，但在某些受限沙箱里跑测试 runner 会因 `spawn EPERM` 失败，直接执行测试文件即可。
 
-测试覆盖：模块注册 id、依赖声明、`settings.section` 注册参数、locale 字典、设置归一化与越界回退、hex→rgba 换算、预设 token 明暗双套、透明度表面覆盖、字体预设与自定义、背景图 URL/data URL 安全校验、背景图 CSS 生成与转义、本地图片的 IndexedDB Blob 路径与 localStorage 回退路径、超尺寸缩放、损坏图片拒绝、apply/cleanup 行为、存储异常兜底、token 图层去重、设置页 CSS token 使用，以及“无网络 / 无 eval / 无 HTML 注入”的静态断言。
+测试覆盖：模块注册 id、依赖声明、`settings.section` 注册参数、locale 字典、设置归一化与越界回退、hex→rgba 换算、预设 token 明暗双套、透明度表面覆盖、设置面板不透明 token、字体预设与自定义、背景图 URL/data URL 安全校验、背景图 CSS 生成与转义、本地图片的 IndexedDB Blob 路径与 localStorage 回退路径、超尺寸缩放、损坏图片拒绝、apply/cleanup 行为、存储异常兜底、token 图层去重、设置页 CSS token 使用，以及“无网络 / 无 eval / 无 HTML 注入”的静态断言。
 
 改造指引：
 
@@ -212,7 +219,7 @@ node test/client.test.mjs      # 27 项测试，直接运行（无需 spawn 子�
 4. **菜单/弹出层有 88% 不透明度下限**：避免为了透明而牺牲可读性，因此它们不会完全透明。
 5. **背景图存储**：优先存 IndexedDB Blob（原文件上限 40 MB，压缩结果上限 12 MB）；IndexedDB 不可用时回退到 localStorage data URL，此时约 180 万字符上限，超限会提示改用图片链接。隐私模式或存储被禁用时，设置只在本次会话生效。
 6. **远程图片受 CSP/网络影响**：插件只校验 URL 协议；图片能否加载由浏览器决定。
-7. **第三方 DSH 主题**：透明表面使用插件自带的明暗中性/预设色，不读取第三方主题的原始色值；换用第三方主题后，透明度下的底色可能与主题不完全一致。
+7. **第三方 DSH 主题**：透明表面与设置面板使用插件自带的明暗中性/预设色，不读取第三方主题的原始色值；换用第三方主题后，设置面板与透明表面的底色可能与主题不完全一致。
 8. **字体覆盖优先于 DSH 字体设置**：选择非“跟随 DSH”的字体后，DSH 自带的字体设置会被本插件覆盖；想恢复 DSH 字体请选“跟随 DSH”。
 9. **未做动效**：预设只改色彩、圆角与透明度，不做消息入场/悬停动画，避免依赖构建期哈希类名。
 10. **macOS 窗口样式差异**：DSH 在 macOS 上让 AppFrame 透明、侧栏使用渐变；本插件按 Windows/Web 的令牌路径设计，macOS 上的透明表现可能不同。

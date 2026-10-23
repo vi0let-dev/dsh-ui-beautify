@@ -76,6 +76,12 @@ function createDocument() {
           height: 0,
           getContext: () => ({ clearRect() {}, drawImage() {} }),
           toDataURL: () => 'data:image/webp;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          toBlob: (callback, type) => {
+            setTimeout(
+              () => callback(new Blob([new Uint8Array(64)], { type: type || 'image/webp' })),
+              0,
+            )
+          },
         }
       }
       return { tagName, dataset: {}, textContent: '' }
@@ -149,6 +155,28 @@ function createStorage(initial = {}, { failing = false } = {}) {
   }
 }
 
+function createFakeIndexedDB() {
+  return {
+    open() {
+      const request = {}
+      setTimeout(() => {
+        request.result = {
+          objectStoreNames: { contains: () => true },
+          transaction() {
+            throw new Error('transaction is not used by this test')
+          },
+        }
+        request.onsuccess?.()
+      }, 0)
+      return request
+    },
+  }
+}
+
+class TestURL extends URL {}
+TestURL.createObjectURL = (blob) => blob.__url || 'blob:test'
+TestURL.revokeObjectURL = () => {}
+
 function createReact() {
   return {
     createElement: (type, props, ...children) => {
@@ -164,7 +192,7 @@ function createReact() {
   }
 }
 
-function loadClient({ storage } = {}) {
+function loadClient({ storage, indexedDB: fakeIndexedDB, URLImpl } = {}) {
   const document = createDocument()
   const react = createReact()
   const registrations = []
@@ -180,9 +208,11 @@ function loadClient({ storage } = {}) {
     window,
     document,
     console,
-    URL,
+    URL: URLImpl ?? URL,
     FileReader: FakeFileReader,
     Image: FakeImage,
+    Blob,
+    ...(fakeIndexedDB ? { indexedDB: fakeIndexedDB } : {}),
     require: (id) => {
       if (id !== 'react') throw new Error(`unexpected platform module: ${id}`)
       return react
@@ -246,8 +276,8 @@ function createCtx(harness) {
   return ctx
 }
 
-function instantiate({ storage } = {}) {
-  const harness = loadClient({ storage })
+function instantiate({ storage, indexedDB, URLImpl } = {}) {
+  const harness = loadClient({ storage, indexedDB, URLImpl })
   assert.equal(harness.registrations.length, 1, 'exactly one module registration')
 
   const registration = harness.registrations[0]
@@ -503,6 +533,33 @@ test('rejects an undecodable local image', async () => {
   )
 })
 
+test('stores a small local image as an IndexedDB Blob', async () => {
+  const { plugin } = instantiate({ indexedDB: createFakeIndexedDB(), URLImpl: TestURL })
+  const file = { type: 'image/png', size: 100, name: 'small.png' }
+  const result = await plugin.__test.prepareWallpaperFile(file)
+
+  assert.equal(result.kind, 'blob')
+  assert.equal(result.blob, file)
+  assert.equal(result.width, 800)
+  assert.equal(result.height, 600)
+  assert.equal(result.name, 'small.png')
+})
+
+test('downscales an oversized image to an IndexedDB Blob', async () => {
+  const { plugin } = instantiate({ indexedDB: createFakeIndexedDB(), URLImpl: TestURL })
+  const result = await plugin.__test.prepareWallpaperFile({
+    type: 'image/png',
+    size: 100,
+    name: 'big.png',
+    __url: 'hugehuge',
+  })
+
+  assert.equal(result.kind, 'blob')
+  assert.equal(result.width, 2560)
+  assert.equal(result.height, 1707)
+  assert.ok(result.blob)
+})
+
 test('builds wallpaper CSS with an escaped URL', () => {
   const { plugin } = instantiate()
   const { buildWallpaperCss, cssUrl } = plugin.__test
@@ -609,7 +666,7 @@ test('a throwing storage backend does not break apply', () => {
   assert.equal(ctx.tokenLayers.length, 0)
 })
 
-test('settings changes re-apply the token layer, blur changes do not', () => {
+test('settings changes re-apply the token layer, blur changes do not', async () => {
   const storage = createStorage({
     'dsh-ui-beautify:settings': JSON.stringify({ style: 'glass', surfaceOpacity: 90 }),
     'dsh-ui-beautify:wallpaper': JSON.stringify({
@@ -636,7 +693,7 @@ test('settings changes re-apply the token layer, blur changes do not', () => {
   )
 
   // Removing the wallpaper clears the attributes and the dynamic stylesheet.
-  runtime.setWallpaper(null)
+  await runtime.setWallpaper(null)
   assert.equal(document.documentElement.getAttribute('data-dsh-ui-beautify-wallpaper'), null)
   assert.equal(
     document.documentElement.style.getPropertyValue('--dsh-ui-beautify-wallpaper-filter'),

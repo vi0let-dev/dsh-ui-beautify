@@ -52,12 +52,21 @@ window.__ModuleLoader__.load({
     const WALLPAPER_CSS_ID = 'dsh-ui-beautify/wallpaper.css'
     const TOKEN_SOURCE = PLUGIN_ID
 
-    /** Upper bound for one stored wallpaper data URL (characters, not bytes). */
+    /** Legacy localStorage fallback cap for one wallpaper data URL. */
     const WALLPAPER_MAX_CHARS = 1800000
     /** Upper bound for the file the user picks before compression. */
-    const WALLPAPER_MAX_FILE_BYTES = 16 * 1024 * 1024
+    const WALLPAPER_MAX_FILE_BYTES = 40 * 1024 * 1024
+    /** Upper bound for the Blob kept in IndexedDB after compression. */
+    const WALLPAPER_MAX_STORED_BYTES = 12 * 1024 * 1024
+    /** Keep the original file when it is already this small. */
+    const WALLPAPER_DIRECT_BYTES = 8 * 1024 * 1024
     /** Longest edge kept after image compression. */
     const WALLPAPER_MAX_EDGE = 2560
+    /** IndexedDB database and store holding the wallpaper Blob. */
+    const WALLPAPER_DB_NAME = 'dsh-ui-beautify'
+    const WALLPAPER_DB_VERSION = 1
+    const WALLPAPER_STORE_NAME = 'wallpaper'
+    const WALLPAPER_RECORD_KEY = 'current'
     /** Successive downscale/quality attempts, largest first. */
     const WALLPAPER_ATTEMPTS = [
       { scale: 1, quality: 0.82 },
@@ -123,7 +132,7 @@ window.__ModuleLoader__.load({
         'wallpaper.remote': '网络图片',
         'wallpaper.saved': '背景图已保存到本机浏览器。',
         'wallpaper.notPersisted': '背景图已应用，但浏览器存储空间不足，刷新后会丢失。请换一张更小的图片或使用图片链接。',
-        'wallpaper.tooLarge': '图片太大，压缩后仍超过本地存储上限。请换一张，或改用图片链接。',
+        'wallpaper.tooLarge': '图片超过 40 MB，或压缩后仍超过本地存储上限。请换一张更小的图片，或改用图片链接。',
         'wallpaper.unsupported': '不支持这个文件类型。请选择 PNG、JPEG、WebP、GIF 或 AVIF 图片。',
         'wallpaper.readFailed': '读取图片失败，请重试。',
         'wallpaper.decodeFailed': '无法解析这张图片，请换一张。',
@@ -186,7 +195,7 @@ window.__ModuleLoader__.load({
         'wallpaper.remote': 'Remote image',
         'wallpaper.saved': 'Wallpaper saved in this browser.',
         'wallpaper.notPersisted': 'Wallpaper applied for this session, but browser storage is full. Refresh will lose it; try a smaller image or an image URL.',
-        'wallpaper.tooLarge': 'This image is still too large after compression. Try another image or use an image URL.',
+        'wallpaper.tooLarge': 'The image is over 40 MB, or still too large after compression. Try a smaller image or use an image URL.',
         'wallpaper.unsupported': 'Unsupported file type. Choose a PNG, JPEG, WebP, GIF, or AVIF image.',
         'wallpaper.readFailed': 'Could not read the image. Please try again.',
         'wallpaper.decodeFailed': 'Could not decode this image. Try another one.',
@@ -647,6 +656,120 @@ window.__ModuleLoader__.load({
     }
 
     /* ------------------------------------------------------------------ *
+     * IndexedDB wallpaper storage
+     *
+     * The wallpaper is the one large value this plugin keeps. localStorage is
+     * limited to a few megabytes and stores base64 as text, so a large image
+     * quickly exceeds the quota. IndexedDB stores the image as a Blob and has
+     * a much larger budget; the CSS then only contains a short blob: URL.
+     * When IndexedDB is unavailable the legacy localStorage data-URL path is
+     * still used (with its character cap).
+     * ------------------------------------------------------------------ */
+
+    let wallpaperDbPromise
+
+    function getWallpaperDb() {
+      if (wallpaperDbPromise !== undefined) return wallpaperDbPromise
+      wallpaperDbPromise = new Promise((resolve) => {
+        try {
+          if (typeof indexedDB === 'undefined' || indexedDB === null) {
+            resolve(null)
+            return
+          }
+          const request = indexedDB.open(WALLPAPER_DB_NAME, WALLPAPER_DB_VERSION)
+          request.onupgradeneeded = () => {
+            const db = request.result
+            if (db && db.objectStoreNames && !db.objectStoreNames.contains(WALLPAPER_STORE_NAME)) {
+              db.createObjectStore(WALLPAPER_STORE_NAME)
+            }
+          }
+          request.onsuccess = () => resolve(request.result ?? null)
+          request.onerror = () => resolve(null)
+          request.onblocked = () => resolve(null)
+        } catch {
+          resolve(null)
+        }
+      })
+      return wallpaperDbPromise
+    }
+
+    function readWallpaperRecord() {
+      return getWallpaperDb().then((db) => {
+        if (!db) return null
+        return new Promise((resolve) => {
+          try {
+            const transaction = db.transaction(WALLPAPER_STORE_NAME, 'readonly')
+            const request = transaction.objectStore(WALLPAPER_STORE_NAME).get(WALLPAPER_RECORD_KEY)
+            request.onsuccess = () => resolve(request.result ?? null)
+            request.onerror = () => resolve(null)
+          } catch {
+            resolve(null)
+          }
+        })
+      })
+    }
+
+    function writeWallpaperRecord(record) {
+      return getWallpaperDb().then((db) => {
+        if (!db) return false
+        return new Promise((resolve) => {
+          try {
+            const transaction = db.transaction(WALLPAPER_STORE_NAME, 'readwrite')
+            transaction.objectStore(WALLPAPER_STORE_NAME).put(record, WALLPAPER_RECORD_KEY)
+            transaction.oncomplete = () => resolve(true)
+            transaction.onerror = () => resolve(false)
+            transaction.onabort = () => resolve(false)
+          } catch {
+            resolve(false)
+          }
+        })
+      })
+    }
+
+    function deleteWallpaperRecord() {
+      return getWallpaperDb().then((db) => {
+        if (!db) return true
+        return new Promise((resolve) => {
+          try {
+            const transaction = db.transaction(WALLPAPER_STORE_NAME, 'readwrite')
+            transaction.objectStore(WALLPAPER_STORE_NAME).delete(WALLPAPER_RECORD_KEY)
+            transaction.oncomplete = () => resolve(true)
+            transaction.onerror = () => resolve(false)
+            transaction.onabort = () => resolve(false)
+          } catch {
+            resolve(false)
+          }
+        })
+      })
+    }
+
+    function createObjectUrl(blob) {
+      try {
+        if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+          return URL.createObjectURL(blob)
+        }
+      } catch {
+        /* fall through to the legacy path */
+      }
+      return ''
+    }
+
+    function revokeObjectUrl(url) {
+      try {
+        if (
+          typeof URL !== 'undefined' &&
+          typeof URL.revokeObjectURL === 'function' &&
+          typeof url === 'string' &&
+          url.startsWith('blob:')
+        ) {
+          URL.revokeObjectURL(url)
+        }
+      } catch {
+        /* revoking a stale URL is best-effort */
+      }
+    }
+
+    /* ------------------------------------------------------------------ *
      * Settings and wallpaper normalization
      * ------------------------------------------------------------------ */
 
@@ -885,7 +1008,111 @@ ${selector} body[data-ds-dark-theme]::after {
       })
     }
 
-    async function prepareWallpaperFile(file) {
+    function loadImageInfo(url) {
+      return new Promise((resolve, reject) => {
+        if (typeof Image !== 'function') {
+          reject(new Error('unsupported'))
+          return
+        }
+        const image = new Image()
+        image.onload = () =>
+          resolve({
+            image,
+            width: image.naturalWidth || image.width || 0,
+            height: image.naturalHeight || image.height || 0,
+          })
+        image.onerror = () => reject(new Error('decode-failed'))
+        image.src = url
+      })
+    }
+
+    function canvasToBlob(canvas, type, quality) {
+      return new Promise((resolve) => {
+        if (!canvas || typeof canvas.toBlob !== 'function') {
+          resolve(null)
+          return
+        }
+        try {
+          canvas.toBlob((blob) => resolve(blob), type, quality)
+        } catch {
+          resolve(null)
+        }
+      })
+    }
+
+    async function compressImageToBlob(image, width, height) {
+      if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+        throw new Error('unsupported')
+      }
+      const baseScale = Math.min(1, WALLPAPER_MAX_EDGE / Math.max(width, height))
+      const canvas = document.createElement('canvas')
+      const context = canvas && typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null
+      if (!canvas || !context) throw new Error('unsupported')
+
+      let best = null
+      let bestWidth = 0
+      let bestHeight = 0
+      for (const attempt of WALLPAPER_ATTEMPTS) {
+        const nextWidth = Math.max(1, Math.round(width * baseScale * attempt.scale))
+        const nextHeight = Math.max(1, Math.round(height * baseScale * attempt.scale))
+        canvas.width = nextWidth
+        canvas.height = nextHeight
+        context.clearRect(0, 0, nextWidth, nextHeight)
+        context.drawImage(image, 0, 0, nextWidth, nextHeight)
+        const candidate = await canvasToBlob(canvas, 'image/webp', attempt.quality)
+        if (!candidate || !candidate.size) continue
+        if (!best || candidate.size < best.size) {
+          best = candidate
+          bestWidth = nextWidth
+          bestHeight = nextHeight
+        }
+        if (candidate.size <= WALLPAPER_MAX_STORED_BYTES) {
+          best = candidate
+          bestWidth = nextWidth
+          bestHeight = nextHeight
+          break
+        }
+      }
+      if (!best) throw new Error('unsupported')
+      if (best.size > WALLPAPER_MAX_STORED_BYTES) throw new Error('too-large')
+      return { blob: best, width: bestWidth, height: bestHeight }
+    }
+
+    async function prepareBlobWallpaper(file) {
+      const url = createObjectUrl(file)
+      if (!url) throw new Error('unsupported')
+      try {
+        const info = await loadImageInfo(url)
+        if (!info.width || !info.height) throw new Error('decode-failed')
+        if (
+          file.size <= WALLPAPER_DIRECT_BYTES &&
+          info.width <= WALLPAPER_MAX_EDGE &&
+          info.height <= WALLPAPER_MAX_EDGE
+        ) {
+          return {
+            kind: 'blob',
+            blob: file,
+            name: typeof file.name === 'string' && file.name !== '' ? file.name : 'wallpaper',
+            width: info.width,
+            height: info.height,
+            bytes: file.size,
+          }
+        }
+        const compressed = await compressImageToBlob(info.image, info.width, info.height)
+        return {
+          kind: 'blob',
+          blob: compressed.blob,
+          name: typeof file.name === 'string' && file.name !== '' ? file.name : 'wallpaper',
+          width: compressed.width,
+          height: compressed.height,
+          bytes: compressed.blob.size,
+        }
+      } finally {
+        revokeObjectUrl(url)
+      }
+    }
+
+    async function prepareLegacyWallpaperFile(file) {
       if (!file || typeof file !== 'object') throw new Error('unsupported')
       const type = typeof file.type === 'string' ? file.type : ''
       if (type !== '' && !type.startsWith('image/')) throw new Error('unsupported')
@@ -928,6 +1155,27 @@ ${selector} body[data-ds-dark-theme]::after {
       }
     }
 
+    async function prepareWallpaperFile(file) {
+      if (!file || typeof file !== 'object') throw new Error('unsupported')
+      const type = typeof file.type === 'string' ? file.type : ''
+      if (type !== '' && !type.startsWith('image/')) throw new Error('unsupported')
+      if (typeof file.size === 'number' && file.size > WALLPAPER_MAX_FILE_BYTES) {
+        throw new Error('too-large')
+      }
+
+      const db = await getWallpaperDb()
+      if (db) {
+        try {
+          return await prepareBlobWallpaper(file)
+        } catch (error) {
+          const code = error && typeof error.message === 'string' ? error.message : ''
+          if (code === 'decode-failed' || code === 'too-large') throw error
+          /* toBlob or createObjectURL unavailable: fall back to the data-URL path */
+        }
+      }
+      return prepareLegacyWallpaperFile(file)
+    }
+
     /* ------------------------------------------------------------------ *
      * Store and runtime
      * ------------------------------------------------------------------ */
@@ -961,6 +1209,8 @@ ${selector} body[data-ds-dark-theme]::after {
     function createRuntime() {
       const settings = createStore(normalizeSettings(readJson(SETTINGS_KEY)))
       const wallpaper = createStore(normalizeWallpaper(readJson(WALLPAPER_KEY)))
+      let activeWallpaperUrl = ''
+      let hydrateGeneration = 0
 
       function setSettings(patch) {
         const next = normalizeSettings({ ...settings.get(), ...patch })
@@ -969,28 +1219,92 @@ ${selector} body[data-ds-dark-theme]::after {
         return next
       }
 
-      function setWallpaper(value) {
-        const next = normalizeWallpaper(value)
-        let persisted
-        if (next === null) {
-          removeKey(WALLPAPER_KEY)
-          persisted = true
-        } else {
-          persisted = writeJson(WALLPAPER_KEY, next)
+      function revokeActiveWallpaperUrl() {
+        if (activeWallpaperUrl) {
+          revokeObjectUrl(activeWallpaperUrl)
+          activeWallpaperUrl = ''
         }
+      }
+
+      function storeBlobWallpaper(record) {
+        const url = createObjectUrl(record.blob)
+        if (!url) return false
+        revokeActiveWallpaperUrl()
+        activeWallpaperUrl = url
+        removeKey(WALLPAPER_KEY)
+        wallpaper.set({
+          kind: 'blob',
+          value: url,
+          name: record.name,
+          width: record.width,
+          height: record.height,
+          bytes: record.bytes,
+        })
+        return true
+      }
+
+      async function setWallpaper(value) {
+        hydrateGeneration += 1
+        if (value === null) {
+          await deleteWallpaperRecord()
+          removeKey(WALLPAPER_KEY)
+          revokeActiveWallpaperUrl()
+          wallpaper.set(null)
+          return true
+        }
+        if (value && value.kind === 'blob' && value.blob) {
+          const record = {
+            blob: value.blob,
+            name: typeof value.name === 'string' && value.name !== '' ? value.name : 'wallpaper',
+            width: Number.isFinite(value.width) ? Math.max(0, Math.round(value.width)) : 0,
+            height: Number.isFinite(value.height) ? Math.max(0, Math.round(value.height)) : 0,
+            bytes: Number.isFinite(value.bytes) ? Math.max(0, Math.round(value.bytes)) : value.blob.size,
+            updatedAt: Date.now(),
+          }
+          const persisted = await writeWallpaperRecord(record)
+          storeBlobWallpaper(record)
+          return persisted
+        }
+        const next = normalizeWallpaper(value)
+        await deleteWallpaperRecord()
+        revokeActiveWallpaperUrl()
+        const persisted = next === null ? true : writeJson(WALLPAPER_KEY, next)
         wallpaper.set(next)
         return persisted
       }
 
-      function reset() {
+      async function hydrateWallpaper() {
+        const generation = ++hydrateGeneration
+        const record = await readWallpaperRecord()
+        if (generation !== hydrateGeneration) return false
+        if (!record || !record.blob) return false
+        return storeBlobWallpaper(record)
+      }
+
+      async function reset() {
         const next = normalizeSettings(DEFAULT_SETTINGS)
         settings.set(next)
         writeJson(SETTINGS_KEY, next)
-        removeKey(WALLPAPER_KEY)
-        wallpaper.set(null)
+        hydrateGeneration += 1
+        await setWallpaper(null)
       }
 
-      return { settings, wallpaper, setSettings, setWallpaper, reset }
+      function release() {
+        hydrateGeneration += 1
+        revokeActiveWallpaperUrl()
+        const current = wallpaper.get()
+        if (current && current.kind === 'blob') wallpaper.set(null)
+      }
+
+      return {
+        settings,
+        wallpaper,
+        setSettings,
+        setWallpaper,
+        hydrateWallpaper,
+        reset,
+        release,
+      }
     }
 
     function getRuntime() {
@@ -1111,10 +1425,12 @@ ${selector} body[data-ds-dark-theme]::after {
       const unsubscribeSettings = app.settings.subscribe(applyNow)
       const unsubscribeWallpaper = app.wallpaper.subscribe(applyNow)
       applyNow()
+      app.hydrateWallpaper().catch(() => {})
 
       return () => {
         unsubscribeSettings()
         unsubscribeWallpaper()
+        app.release()
         if (tokenDispose) {
           try {
             tokenDispose()
@@ -1275,7 +1591,7 @@ ${selector} body[data-ds-dark-theme]::after {
           setNotice(null)
           try {
             const prepared = await prepareWallpaperFile(file)
-            const persisted = app.setWallpaper(prepared)
+            const persisted = await app.setWallpaper(prepared)
             setNotice({
               kind: persisted ? 'ok' : 'error',
               key: persisted ? 'wallpaper.saved' : 'wallpaper.notPersisted',
@@ -1290,13 +1606,13 @@ ${selector} body[data-ds-dark-theme]::after {
         [app],
       )
 
-      const handleUrl = useCallback(() => {
+      const handleUrl = useCallback(async () => {
         const safe = sanitizeImageUrl(urlDraft)
         if (!safe) {
           setNotice({ kind: 'error', key: 'wallpaper.invalidUrl' })
           return
         }
-        const persisted = app.setWallpaper({
+        const persisted = await app.setWallpaper({
           kind: 'url',
           value: safe,
           name: safe,
@@ -1311,19 +1627,19 @@ ${selector} body[data-ds-dark-theme]::after {
         setResetArmed(false)
       }, [app, urlDraft])
 
-      const handleClear = useCallback(() => {
-        app.setWallpaper(null)
+      const handleClear = useCallback(async () => {
+        await app.setWallpaper(null)
         setNotice({ kind: 'ok', key: 'wallpaper.cleared' })
         setResetArmed(false)
       }, [app])
 
-      const handleReset = useCallback(() => {
+      const handleReset = useCallback(async () => {
         if (!resetArmed) {
           setResetArmed(true)
           setNotice({ kind: 'ok', key: 'reset.hint' })
           return
         }
-        app.reset()
+        await app.reset()
         setResetArmed(false)
         setNotice({ kind: 'ok', key: 'reset.done' })
       }, [app, resetArmed])
